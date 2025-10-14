@@ -6,6 +6,9 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 	api := r.Group("/api")
 	{
 		api.POST("/register", h.RegisterUser)
-		// 之后添加 /login /me /logout
+
+		api.POST("/login", h.LoginUser)
+		// 之后添加  /me /logout
+
 	}
 }

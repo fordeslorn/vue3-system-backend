@@ -19,6 +19,7 @@ func (s *Store) GetByEmail(email string) (*core.User, error) {
 	u := &core.User{}
 	err := s.DB.QueryRow("SELECT id, username, email, password_hash FROM users WHERE email = $1", email).
 		Scan(&u.Id, &u.Username, &u.Email, &u.PasswordHash)
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

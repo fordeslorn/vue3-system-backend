@@ -35,4 +35,4 @@ go.work.sum
 *.sql
 gin-api.md
 management-system-api.md
-postgres.txt
+docker-depoly-env.txt

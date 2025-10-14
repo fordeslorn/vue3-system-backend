@@ -1,23 +1,32 @@
 package api
 
 import (
+	"management-system-api/internal/auth"
+	"management-system-api/internal/core"
+	"management-system-api/internal/store"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
-
-	"management-system-api/internal/core"
-	"management-system-api/internal/store"
 )
 
 type Handler struct {
-	Store *store.Store
+	Store          *store.Store
+	SessionManager *auth.SessionManager
+	CookieDomain   string
 }
 
-func NewHandler(s *store.Store) *Handler { return &Handler{Store: s} }
+func NewHandler(s *store.Store, sm *auth.SessionManager, cookieDomain string) *Handler {
+	return &Handler{
+		Store:          s,
+		SessionManager: sm,
+		CookieDomain:   cookieDomain,
+	}
+}
 
 type registerRequest struct {
 	Username string `json:"username"`
@@ -124,6 +133,7 @@ func (h *Handler) LoginUser(c *gin.Context) {
 	}
 	if user == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
+		return
 	}
 
 	// compare password
@@ -132,6 +142,16 @@ func (h *Handler) LoginUser(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
 		return
 	}
+
+	// Create session
+	sessionToken, err := h.SessionManager.CreateSession(user.Id, 24*time.Hour)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+
+	// set cookie
+	c.SetCookie("session_token", sessionToken, 86400, "/", h.CookieDomain, false, true)
 
 	// Success login
 	c.JSON(http.StatusOK, gin.H{
