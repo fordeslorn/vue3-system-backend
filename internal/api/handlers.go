@@ -1,0 +1,144 @@
+package api
+
+import (
+	"net/http"
+	"strings"
+	"unicode"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
+	"management-system-api/internal/core"
+	"management-system-api/internal/store"
+)
+
+type Handler struct {
+	Store *store.Store
+}
+
+func NewHandler(s *store.Store) *Handler { return &Handler{Store: s} }
+
+type registerRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// Password validation: at least 8 chars, at least one upper, one lower, one digit
+func validatePassword(pw string) bool {
+	if len(pw) < 8 {
+		return false
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, char := range pw {
+		switch {
+		case unicode.IsUpper(char):
+			hasUpper = true
+		case unicode.IsLower(char):
+			hasLower = true
+		case unicode.IsDigit(char):
+			hasDigit = true
+		}
+	}
+	return hasUpper && hasLower && hasDigit
+}
+
+// User registration api
+func (h *Handler) RegisterUser(c *gin.Context) {
+	var req registerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid json"})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(req.Email)
+	if req.Username == "" || req.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Email and username cannot be empty"})
+		return
+	}
+
+	// validate password
+	if !validatePassword(req.Password) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Password must be at least 8 characters long and include uppercase, lowercase letters, and digits"})
+		return
+	}
+
+	// check existing
+	existing, err := h.Store.GetByEmail(req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+	if existing != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "email exists"})
+		return
+	}
+
+	// hash password
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+
+	// create user
+	user := &core.User{
+		Id:           uuid.New().String(),
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: string(hash),
+	}
+	if err := h.Store.CreateUser(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Login successful"})
+}
+
+// User login api
+func (h *Handler) LoginUser(c *gin.Context) {
+	var req loginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid json"})
+		return
+	}
+
+	req.Email = strings.TrimSpace(req.Email)
+	if req.Email == "" || req.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Email and password cannot be empty"})
+		return
+	}
+
+	// check existing
+	user, err := h.Store.GetByEmail(req.Email)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
+	}
+
+	// compare password
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
+		return
+	}
+
+	// Success login
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"user": gin.H{
+			"id":       user.Id,
+			"username": user.Username,
+		},
+	})
+}
