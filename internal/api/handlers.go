@@ -108,7 +108,7 @@ func (h *Handler) RegisterUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Login successful"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Registration successful"})
 }
 
 // User login api
