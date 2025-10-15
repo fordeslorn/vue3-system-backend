@@ -11,9 +11,10 @@ import (
 
 // Config stores the application configuration
 type Config struct {
-	DbUrl        string
-	RedisAddr    string
-	CookieDomain string
+	DbUrl              string
+	RedisAddr          string
+	CookieDomain       string
+	CorsAllowedOrigins string
 }
 
 // LoadConfig 从环境变量中读取配置
@@ -36,10 +37,17 @@ func LoadConfig() *Config {
 		cookieDomain = "localhost"
 	}
 
+	// set default value for CORS allowed origins
+	corsOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if corsOrigins == "" {
+		corsOrigins = "http://localhost:5173"
+	}
+
 	return &Config{
-		DbUrl:        dbUrl,
-		RedisAddr:    redisAddr,
-		CookieDomain: cookieDomain,
+		DbUrl:              dbUrl,
+		RedisAddr:          redisAddr,
+		CookieDomain:       cookieDomain,
+		CorsAllowedOrigins: corsOrigins,
 	}
 }
 

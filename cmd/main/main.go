@@ -6,7 +6,10 @@ import (
 	"management-system-api/internal/api"
 	"management-system-api/internal/auth"
 	"management-system-api/internal/store"
+	"strings"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
@@ -38,6 +41,22 @@ func main() {
 
 	// Create Gin engine
 	r := gin.Default()
+
+	// configure CORS middleware
+	r.Use(cors.New(cors.Config{
+		// allow origins from config, * means allow all, in production should specify your frontend domain
+		AllowOrigins: strings.Split(cfg.CorsAllowedOrigins, ","),
+		// allow methods that can be used by the client
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		// allow headers that can be sent by the client
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+		// allow headers that can be exposed to the browser
+		ExposeHeaders: []string{"Content-Length"},
+		// allow cookies
+		AllowCredentials: true,
+		// set preflight request cache duration
+		MaxAge: 12 * time.Hour,
+	}))
 
 	// Create store and handler
 	userStore := store.NewStore(db)
