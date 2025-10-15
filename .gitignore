@@ -31,6 +31,9 @@ go.work.sum
 .idea/
 # .vscode/
 
+# build output
+dist/
+
 # Oher files
 *.sql
 gin-api.md
