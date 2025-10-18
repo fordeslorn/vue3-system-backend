@@ -6,6 +6,7 @@ import (
 	"management-system-api/internal/api"
 	"management-system-api/internal/auth"
 	"management-system-api/internal/store"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +20,14 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
 	}
+
+	if err := os.MkdirAll("./assets/captcha_images/white", 0755); err != nil {
+		log.Fatalf("Failed to create directory ./assets/captcha_images/white: %v", err)
+	}
+	if err := os.MkdirAll("./assets/captcha_images/other", 0755); err != nil {
+		log.Fatalf("Failed to create directory ./assets/captcha_images/other: %v", err)
+	}
+	log.Println("Captcha image directories are ready. Please add images.")
 
 	// load config
 	cfg := config.LoadConfig()
@@ -61,7 +70,8 @@ func main() {
 	// Create store and handler
 	userStore := store.NewStore(db)
 	sessionManager := auth.NewSessionManager(redisClient)
-	handler := api.NewHandler(userStore, sessionManager, cfg.CookieDomain)
+	captchaManager := auth.NewCaptchaManager(redisClient)
+	handler := api.NewHandler(userStore, sessionManager, captchaManager, cfg.CookieDomain)
 	// Register routes
 	api.RegisterRoutes(r, handler)
 

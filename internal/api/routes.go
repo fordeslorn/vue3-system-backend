@@ -12,6 +12,8 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 		// Public routes
 		api.POST("/register", h.RegisterUser)
 		api.POST("/login", h.LoginUser)
+		api.GET("/auth/captcha", h.GetCaptchaHandler)
+		api.POST("/auth/captcha", h.VerifyCaptchaHandler)
 
 		// Protected routes, require authentication via middleware
 		protected := api.Group("/")
