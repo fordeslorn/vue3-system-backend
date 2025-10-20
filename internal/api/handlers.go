@@ -1,14 +1,18 @@
 package api
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"log"
+	"management-system-api/config"
 	"management-system-api/internal/auth"
 	"management-system-api/internal/core"
 	"management-system-api/internal/store"
-	"math/rand"
+	"math/big"
+	mrand "math/rand"
 	"net/http"
+	"net/smtp"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jordan-wright/email"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -26,21 +31,34 @@ type Handler struct {
 	SessionManager *auth.SessionManager
 	CaptchaManager *auth.CaptchaManager
 	CookieDomain   string
+	SmtpHost       string
+	SmtpPort       string
+	SmtpUser       string
+	SmtpPass       string
 }
 
-func NewHandler(s *store.Store, sm *auth.SessionManager, cm *auth.CaptchaManager, cookieDomain string) *Handler {
+func NewHandler(s *store.Store, sm *auth.SessionManager, cm *auth.CaptchaManager, cfg *config.Config) *Handler {
 	return &Handler{
 		Store:          s,
 		SessionManager: sm,
 		CaptchaManager: cm,
-		CookieDomain:   cookieDomain,
+		CookieDomain:   cfg.CookieDomain,
+		SmtpHost:       cfg.SmtpHost,
+		SmtpPort:       cfg.SmtpPort,
+		SmtpUser:       cfg.SmtpUser,
+		SmtpPass:       cfg.SmtpPass,
 	}
 }
 
 type registerRequest struct {
-	Email            string `json:"email"`
-	Password         string `json:"password"`
-	VerificationCode string `json:"verificationCode"`
+	Email                 string `json:"email"`
+	Password              string `json:"password"`
+	EmailVerificationCode string `json:"emailVerificationCode"`
+}
+
+type sendEmailCodeRequest struct {
+	Email       string `json:"email"`
+	CaptchaCode string `json:"captchaCode"`
 }
 
 type loginRequest struct {
@@ -94,6 +112,17 @@ func (h *Handler) RegisterUser(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid json"})
+		return
+	}
+
+	// verify email verificationCode
+	verified, err := h.CaptchaManager.VerifyEmailVerificationCode(req.Email, req.EmailVerificationCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+	if !verified {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid or expired email verification code."})
 		return
 	}
 
@@ -309,7 +338,7 @@ func encodeImageToBase64(filePath string) (string, error) {
 
 // API: Handle get captcha challenge request
 func (h *Handler) GetCaptchaHandler(c *gin.Context) {
-	correctCount := rand.Intn(3) + 1
+	correctCount := mrand.Intn(3) + 1
 	const totalCount = 4
 
 	correctDir := "./assets/captcha_images/white"
@@ -329,8 +358,8 @@ func (h *Handler) GetCaptchaHandler(c *gin.Context) {
 		return
 	}
 
-	rand.Shuffle(len(correctFiles), func(i, j int) { correctFiles[i], correctFiles[j] = correctFiles[j], correctFiles[i] })
-	rand.Shuffle(len(distractorFiles), func(i, j int) { distractorFiles[i], distractorFiles[j] = distractorFiles[j], distractorFiles[i] })
+	mrand.Shuffle(len(correctFiles), func(i, j int) { correctFiles[i], correctFiles[j] = correctFiles[j], correctFiles[i] })
+	mrand.Shuffle(len(distractorFiles), func(i, j int) { distractorFiles[i], distractorFiles[j] = distractorFiles[j], distractorFiles[i] })
 
 	selectedCorrect := correctFiles[:correctCount]
 	selectedDistractor := distractorFiles[:totalCount-correctCount]
@@ -357,7 +386,7 @@ func (h *Handler) GetCaptchaHandler(c *gin.Context) {
 		allImages = append(allImages, CaptchaImage{ID: imgID, Data: base64Data})
 	}
 
-	rand.Shuffle(len(allImages), func(i, j int) { allImages[i], allImages[j] = allImages[j], allImages[i] })
+	mrand.Shuffle(len(allImages), func(i, j int) { allImages[i], allImages[j] = allImages[j], allImages[i] })
 
 	sessionID, err := h.CaptchaManager.CreateCaptchaSession(correctIDs, 5*time.Minute)
 	if err != nil {
@@ -419,4 +448,89 @@ func (h *Handler) VerifyCaptchaHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, VerifyCaptchaResponse{Code: verificationCode})
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+// generate a numeric code of given length
+func generateNumericCode(length int) (string, error) {
+	const letters = "0123456789"
+	result := make([]byte, length)
+	for i := range result {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = letters[num.Int64()]
+	}
+	return string(result), nil
+}
+
+// API: Send email verification code
+func (h *Handler) SendEmailVerificationCodeHandler(c *gin.Context) {
+	var req sendEmailCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request"})
+		return
+	}
+
+	// verify captcha code
+	verified, err := h.CaptchaManager.VerifyAndConsumeToken(req.CaptchaCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+	if !verified {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid or expired captcha. Please try again."})
+		return
+	}
+
+	// generate email verification code
+	emailCode, err := generateNumericCode(6) // 生成一个6位数字验证码
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to generate email code"})
+		return
+	}
+
+	// store email verification code, effective for 5 minutes
+	err = h.CaptchaManager.CreateEmailVerificationCode(req.Email, emailCode, 5*time.Minute)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to save email code"})
+		return
+	}
+
+	// 步骤 4: 发送邮件 (重要提示：这里只是打印到控制台，您需要替换为真实的邮件发送服务)
+	subject := "Your Verification Code"
+	body := fmt.Sprintf("Welcome! Your verification code is: %s. It will expire in 5 minutes.", emailCode)
+	err = h.sendEmail(req.Email, subject, body)
+	if err != nil {
+		// 如果邮件发送失败，不应让用户知道具体错误，记录日志即可
+		log.Printf("Failed to send verification email to %s: %v", req.Email, err)
+		// 即使发送失败，也返回成功，避免攻击者利用此接口探测邮箱是否存在
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Verification code has been sent to your email if it exists."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Verification code has been sent to your email."})
+}
+
+// sendEmail 使用 SMTP 发送邮件
+func (h *Handler) sendEmail(to, subject, body string) error {
+	e := email.NewEmail()
+	e.From = h.SmtpUser
+	e.To = []string{to}
+	e.Subject = subject
+	e.Text = []byte(body)
+
+	addr := h.SmtpHost + ":" + h.SmtpPort
+	// 该库的 Send 方法会自动处理 STARTTLS
+	// 它使用 net/smtp.PlainAuth，但其内部实现能更好地与需要 STARTTLS 的服务器协作
+	err := e.Send(addr, smtp.PlainAuth("", h.SmtpUser, h.SmtpPass, h.SmtpHost))
+	if err != nil {
+		// 错误日志已包含在函数内部，这里只返回错误
+		return err
+	}
+
+	log.Printf("Email sent successfully to %s", to)
+	return nil
 }
