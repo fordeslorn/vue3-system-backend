@@ -38,7 +38,6 @@ func NewHandler(s *store.Store, sm *auth.SessionManager, cm *auth.CaptchaManager
 }
 
 type registerRequest struct {
-	Username         string `json:"username"`
 	Email            string `json:"email"`
 	Password         string `json:"password"`
 	VerificationCode string `json:"verificationCode"`
@@ -98,9 +97,8 @@ func (h *Handler) RegisterUser(c *gin.Context) {
 		return
 	}
 
-	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.TrimSpace(req.Email)
-	if req.Username == "" || req.Email == "" {
+	if req.Email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Email and username cannot be empty"})
 		return
 	}
@@ -129,10 +127,14 @@ func (h *Handler) RegisterUser(c *gin.Context) {
 		return
 	}
 
+	newId := uuid.New().String()
+	usernameParts := strings.Split(newId, "-")
+	defaultUsername := "用户" + usernameParts[0] + usernameParts[1]
+
 	// create user
 	user := &core.User{
-		Id:           uuid.New().String(),
-		Username:     req.Username,
+		Id:           newId,
+		Username:     defaultUsername,
 		Email:        req.Email,
 		PasswordHash: string(hash),
 	}
