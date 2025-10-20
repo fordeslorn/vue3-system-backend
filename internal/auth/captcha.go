@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -87,4 +88,31 @@ func (cm *CaptchaManager) VerifyAndConsumeToken(token string) (bool, error) {
 		return false, err
 	}
 	return deletedCount > 0, nil
+}
+
+// CreateEmailVerificationCode 生成并存储邮箱验证码
+func (cm *CaptchaManager) CreateEmailVerificationCode(email, code string, duration time.Duration) error {
+	// 使用 email 作为键，确保一个邮箱在有效期内只有一个验证码
+	key := fmt.Sprintf("email_verify_code:%s", email)
+	return cm.redisClient.Set(cm.ctx, key, code, duration).Err()
+}
+
+// VerifyEmailVerificationCode 校验并消费邮箱验证码
+func (cm *CaptchaManager) VerifyEmailVerificationCode(email, code string) (bool, error) {
+	key := fmt.Sprintf("email_verify_code:%s", email)
+	storedCode, err := cm.redisClient.Get(cm.ctx, key).Result()
+	if err == redis.Nil {
+		return false, nil // 验证码不存在或已过期
+	}
+	if err != nil {
+		return false, err
+	}
+
+	if storedCode == code {
+		// 验证成功后立即删除，防止重复使用
+		cm.redisClient.Del(cm.ctx, key)
+		return true, nil
+	}
+
+	return false, nil
 }

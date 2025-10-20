@@ -15,39 +15,30 @@ type Config struct {
 	RedisAddr          string
 	CookieDomain       string
 	CorsAllowedOrigins string
+	SmtpHost           string // 新增: SMTP 服务器地址
+	SmtpPort           string // 新增: SMTP 服务器端口
+	SmtpUser           string // 新增: SMTP 登录用户名 (通常是邮箱地址)
+	SmtpPass           string // 新增: SMTP 登录密码或授权码
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
 
 // LoadConfig 从环境变量中读取配置
 func LoadConfig() *Config {
-	// set default value for database URL
-	dbUrl := os.Getenv("DATABASE_URL")
-	if dbUrl == "" {
-		dbUrl = "postgresql://root:secret@localhost:5432/simple_bank?sslmode=disable"
-	}
-
-	// set default value for Redis address
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
-
-	// set default value for cookie domain
-	cookieDomain := os.Getenv("COOKIE_DOMAIN")
-	if cookieDomain == "" {
-		cookieDomain = "localhost"
-	}
-
-	// set default value for CORS allowed origins
-	corsOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
-	if corsOrigins == "" {
-		corsOrigins = "http://localhost:5173"
-	}
-
 	return &Config{
-		DbUrl:              dbUrl,
-		RedisAddr:          redisAddr,
-		CookieDomain:       cookieDomain,
-		CorsAllowedOrigins: corsOrigins,
+		DbUrl:              getEnv("DATABASE_URL", "postgres://user:password@localhost/dbname?sslmode=disable"),
+		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
+		CorsAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"),
+		CookieDomain:       getEnv("COOKIE_DOMAIN", "localhost"),
+		SmtpHost:           getEnv("SMTP_HOST", "smtp.example.com"), // 新增
+		SmtpPort:           getEnv("SMTP_PORT", "587"),              // 新增
+		SmtpUser:           getEnv("SMTP_USER", "user@example.com"), // 新增
+		SmtpPass:           getEnv("SMTP_PASS", "your-password"),    // 新增
 	}
 }
 

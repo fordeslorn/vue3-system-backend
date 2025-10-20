@@ -71,7 +71,8 @@ func main() {
 	userStore := store.NewStore(db)
 	sessionManager := auth.NewSessionManager(redisClient)
 	captchaManager := auth.NewCaptchaManager(redisClient)
-	handler := api.NewHandler(userStore, sessionManager, captchaManager, cfg.CookieDomain)
+
+	handler := api.NewHandler(userStore, sessionManager, captchaManager, cfg)
 	// Register routes
 	api.RegisterRoutes(r, handler)
 
