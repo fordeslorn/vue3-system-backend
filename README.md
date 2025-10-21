@@ -68,6 +68,7 @@ To deploy the backend system, follow these steps:
 ## Project Structure
 <details>
 <summary>Tree</summary>
+<pre><code>
 management-system-backend/
 ├── cmd/                  # 项目的可执行文件入口
 │   └── main/             # 主应用程序
@@ -97,4 +98,5 @@ management-system-backend/
 ├── go.sum                # 依赖项的校验和
 ├── LICENSE               # 项目许可证
 └── README.md             # 项目说明文档
+</code></pre>
 </details>
