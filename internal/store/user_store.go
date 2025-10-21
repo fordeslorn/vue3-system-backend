@@ -4,7 +4,7 @@ package store
 
 import (
 	"database/sql"
-
+	"fmt"
 	"management-system-api/internal/core"
 )
 
@@ -50,4 +50,23 @@ func (s *Store) GetByID(id string) (*core.User, error) {
 		return nil, err // Error occurred in query
 	}
 	return u, nil
+}
+
+// UpdateUserPassword finds a user by email and updates their password hash.
+func (s *Store) UpdateUserPassword(email, newPasswordHash string) error {
+	query := `UPDATE users SET password_hash = $1 WHERE email = $2`
+	result, err := s.DB.Exec(query, newPasswordHash, email)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("user with email %s not found", email)
+	}
+
+	return nil
 }
