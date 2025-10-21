@@ -17,6 +17,8 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 			authGroup.GET("/captcha", h.GetCaptchaHandler)
 			authGroup.POST("/captcha", h.VerifyCaptchaHandler)
 			authGroup.POST("/email-verification", h.SendEmailVerificationCodeHandler)
+			authGroup.POST("/forgot-password", h.ForgotPasswordHandler)
+			authGroup.POST("/reset-password", h.ResetPasswordHandler)
 		}
 
 		// Protected routes, require authentication via middleware

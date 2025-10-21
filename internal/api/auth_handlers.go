@@ -31,6 +31,17 @@ type loginRequest struct {
 	VerificationCode string `json:"verificationCode"`
 }
 
+type ForgotPasswordRequest struct {
+	Email       string `json:"email"`
+	CaptchaCode string `json:"captchaCode"`
+}
+
+type ResetPasswordRequest struct {
+	Email            string `json:"email"`
+	VerificationCode string `json:"verificationCode"`
+	NewPassword      string `json:"newPassword"`
+}
+
 // Password validation: at least 8 chars, at least one upper, one lower, one digit
 func validatePassword(pw string) bool {
 	if len(pw) < 8 {
@@ -233,7 +244,7 @@ func (h *Handler) SendEmailVerificationCodeHandler(c *gin.Context) {
 
 	// send email
 	subject := "Your Verification Code"
-	body := fmt.Sprintf("Welcome! Your verification code is: %s. It will expire in 5 minutes.", emailCode)
+	body := fmt.Sprintf("Welcome! Your verification code is: \n%s\n It will expire in 5 minutes.", emailCode)
 	err = h.sendEmail(req.Email, subject, body)
 	if err != nil {
 		// if sending email fails, log the error but do not inform the user
@@ -244,4 +255,100 @@ func (h *Handler) SendEmailVerificationCodeHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Verification code has been sent to your email."})
+}
+
+// ForgotPasswordHandler API: send password reset code
+func (h *Handler) ForgotPasswordHandler(c *gin.Context) {
+	var req ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request"})
+		return
+	}
+
+	// verify captcha code
+	verified, err := h.CaptchaManager.VerifyAndConsumeToken(req.CaptchaCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+	if !verified {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid or expired captcha. Please try again."})
+		return
+	}
+
+	// check if user exists
+	user, err := h.Store.GetByEmail(req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+
+	// if user exists, generate reset code and send email
+	if user != nil {
+		resetCode, err := generateNumericCode(6)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to generate reset code"})
+			return
+		}
+
+		// cache reset code with 5 minutes expiry
+		err = h.CaptchaManager.CreateEmailVerificationCode(req.Email, resetCode, 5*time.Minute) // 5 minutes expiry
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to save reset code"})
+			return
+		}
+
+		subject := "Your Password Reset Code"
+		body := fmt.Sprintf("You are resetting your password. Your verification code is: \n%s\n It will expire in 10 minutes.", resetCode)
+		// send email (log error if fails, but do not inform user)
+		if sendErr := h.sendEmail(req.Email, subject, body); sendErr != nil {
+			log.Printf("Failed to send password reset email to %s: %v", req.Email, sendErr)
+		}
+	}
+
+	// no matter whether user exists or not, always return success message
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "If an account with that email exists, a password reset code has been sent."})
+}
+
+// ResetPasswordHandler API: reset password
+func (h *Handler) ResetPasswordHandler(c *gin.Context) {
+	var req ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request"})
+		return
+	}
+
+	// validate new password format
+	if !validatePassword(req.NewPassword) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Password must be at least 8 characters long and include uppercase, lowercase letters, and digits"})
+		return
+	}
+
+	// verify email verification code
+	verified, err := h.CaptchaManager.VerifyEmailVerificationCode(req.Email, req.VerificationCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error"})
+		return
+	}
+	if !verified {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid or expired verification code."})
+		return
+	}
+
+	// hash new password
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server internal error on hashing password"})
+		return
+	}
+
+	// update password in database
+	err = h.Store.UpdateUserPassword(req.Email, string(hash))
+	if err != nil {
+		// this error means the email does not exist or other DB error
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to update password."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Password has been reset successfully."})
 }
